@@ -1,0 +1,133 @@
+---
+title: "Practical_ML_Project"
+author: "Michael Pawlus"
+date: "Wednesday, June 17, 2015"
+output: html_document
+---
+
+###Practical Maching Learning Project
+####for Coursera's Data Science Specialization
+
+Using data from motion tracking devices, this report will investigate the best model selction to accurately predict if a given excercise is being performed correctly.
+
+First, the data is loaded.
+
+
+```{r}
+setwd("C:/Users/pawlusm/Desktop/decTree/pml")
+
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+```
+
+And the neccessary R packages are also loaded.
+
+```{r}
+library(ggplot2)
+library(caret)
+```
+
+####Pre-Process
+
+Next, the data sets are explored:
+
+```{r}
+str(training)
+dim(training)
+dim(testing)
+```
+
+The first thing to notice is the number of rows that are all NAs.
+Also, there are a number of blanks and #DIV/0! that should also be NAs so we will re-load the data to make this change.
+
+```{r}
+training <- read.csv("pml-training.csv", na.strings=c("NA","","#DIV/0!"))
+testing <- read.csv("pml-testing.csv", na.strings=c("NA","","#DIV/0!"))
+```
+
+After looking through the data again (using summary -- the output for which is excluded because of size), there are no cases where there are just a few NAs.  That is, whenever there are null values they account for the majority of the rows in a column so we can safely remove all columns with NAs using the following and then check the new dimensions.
+
+```{r}
+training <- training[,colSums(is.na(training)) == 0]
+testing <- testing[,colSums(is.na(testing)) == 0]
+dim(training)
+dim(testing)
+```
+
+####Feature Selection
+
+We will remove the variables that are just for identification and do not represent movement
+
+```{r}
+training <- training[,7:60]
+testing<- testing[,7:60]
+```
+
+Next, let's look for those variables that are highly correlated and remove them.
+
+```{r}
+correlationMatrix <- cor(training[,1:53]) # evaluating only numeric columns
+highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.75) # find factors that are highly correlated
+training <- training[,-highlyCorrelated] # remove highly correlated columns from training
+testing <- testing[,-highlyCorrelated] # and testing
+```
+
+Lastly, a check of the data for near zero variance is performed.  No columns are found in this check.
+
+```{r}
+nzv <- nearZeroVar(training, saveMetrics= TRUE)
+nzv
+```
+
+####Model Creation
+
+Now that the data contains relevant results, the model can be built.  First, the data is partitioned.
+
+```{r}
+# make training set
+set.seed(125)
+model.train <- createDataPartition(y = training$classe, p = 0.7, list = FALSE)
+training.train <- training[model.train,]
+training.test <- training[-model.train,]
+dim(training.train)
+dim(training.test)
+```
+
+Next, the model is built.  Random Forests will be used because it is well-known to predict the most accurate results.  Note that cross-validation is not necessary when using Random Forests as it is estimated internally within the model.
+
+```{r}
+# build model
+modFit.rf <- train(classe ~ ., data=training.train, method = "rf", trControl = trainControl(method = "oob"), 
+    preProc = c("center","scale"))
+
+modFit.rf
+```
+
+Evaluating the results of the model we see that it does perform well and has a high accuracy and kappa percentage.
+
+####Model Test
+
+This model is now used to predict on the test data set (partitioned from the original training set)
+
+```{r}
+model.predict <- predict(modFit.rf, newdata=training.test)
+confusionMatrix(model.predict,training.test$classe)
+```
+
+The model predicts with 99.83% Accuracy.
+The estimated out of sample error rate is only 0.17% (1 - Accuracy).
+It is possible there is some overfitting but the Accuracy is not exactly 100% so the model may still work well.
+The file below will test the accuracy on a validation data set (n=20).
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+answers <- predict(modFit.rf, testing)
+pml_write_files(answers)
+```
